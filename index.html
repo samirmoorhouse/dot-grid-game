@@ -11,6 +11,7 @@
     }
     #controls {
       margin-bottom: 15px;
+      font-size: 1em;
     }
     #gameCanvas {
       border: 1px solid #444;
@@ -37,11 +38,10 @@
 <body>
   <h2>Pick as Many Dots as You Can (No Two Slopes the Same)</h2>
 
-  <!-- ─────────── CONTROLS: Grid‐Size Selector and Reset Button ─────────── -->
+  <!-- ─────────── CONTROLS: Grid‐Size Dropdown + Reset Button ─────────── -->
   <div id="controls">
     <label for="gridSizeSelect">Grid Size:&nbsp;</label>
     <select id="gridSizeSelect">
-      <option value="2">2 × 2</option>
       <option value="3">3 × 3</option>
       <option value="4">4 × 4</option>
       <option value="5" selected>5 × 5</option>
@@ -55,46 +55,43 @@
     <button id="resetBtn">Start / Reset</button>
   </div>
 
-  <!-- Canvas for drawing the grid -->
+  <!-- Canvas where we draw the dots and lines -->
   <canvas id="gameCanvas" width="500" height="500"></canvas>
 
-  <!-- Info area: how many selected vs. theoretical maximum -->
+  <!-- Info area: current count vs. theoretical max -->
   <div id="info">
     Selected: <span id="count">0</span> /
     <span id="maxPossible">?</span> dots
   </div>
-  <!-- Win message goes here -->
+  <!-- Win message appears here when you reach gridSize+1 -->
   <div id="winMsg"></div>
 
   <script>
-    // ─────────── 1) GLOBAL STATE VARIABLES ───────────
-    let gridSize = 5;         // current N (will be overwritten by selector)
-    const canvasSize = 500;   // canvas is 500×500 px
-    const margin = 40;        // px padding around the grid
-    const dotRadius = 8;      // px radius of each dot
-    let cellSize;             // computed: (canvasSize − 2*margin)/(gridSize − 1)
+    // ─────────── 1) GLOBAL STATE ───────────
+    let gridSize = 5;            // overwritten by dropdown selection
+    const canvasSize = 500;      // fixed 500×500 px canvas
+    const margin = 40;           // px padding around the grid
+    const dotRadius = 8;         // px radius for each dot
+    let cellSize;                // computed: (canvasSize − 2*margin) / (gridSize − 1)
 
-    let gridCoords = [];      // 2D array: gridCoords[i][j] = {x, y}
-    let selected = [];        // list of {i,j} which are currently chosen
-    let usedSlopes = new Set();// set of slope‐strings in reduced form
+    let gridCoords = [];         // 2D array: gridCoords[i][j] = {x, y}
+    let selected = [];           // array of {i, j} for currently chosen dots
+    let usedSlopes = new Set();  // set of slope‐strings already used
 
-    // Canvas context
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
 
-    // Info spans
     const countSpan = document.getElementById('count');
     const maxSpan = document.getElementById('maxPossible');
     const winMsgDiv = document.getElementById('winMsg');
 
-    // Controls
     const gridSizeSelect = document.getElementById('gridSizeSelect');
     const resetBtn = document.getElementById('resetBtn');
 
 
     // ─────────── 2) UTILITY FUNCTIONS ───────────
 
-    // Compute greatest common divisor
+    // Compute gcd of two integers
     function gcd(a, b) {
       a = Math.abs(a);
       b = Math.abs(b);
@@ -106,10 +103,10 @@
       return a;
     }
 
-    // Compute reduced slope string for (i1,j1) → (i2,j2)
+    // Given two grid‐indices (i1,j1) → (i2,j2), return reduced slope as "dy/dx" or "inf"
     function computeSlope(i1, j1, i2, j2) {
       const dx = j2 - j1;
-      const dy = i1 - i2; // invert because canvas y increases downward
+      const dy = i1 - i2; // invert because canvas y grows downward
       if (dx === 0) {
         return 'inf';
       }
@@ -124,7 +121,7 @@
       return `${rDy}/${rDx}`;
     }
 
-    // Update the displayed "Selected: X / Y" and show win if max reached
+    // Update the "Selected: X / Y" display and show win when appropriate
     function updateInfo() {
       countSpan.textContent = selected.length;
       maxSpan.textContent = gridSize + 1;
@@ -135,7 +132,7 @@
       }
     }
 
-    // Clear canvas and redraw everything
+    // Clear & redraw entire canvas
     function drawAll() {
       ctx.clearRect(0, 0, canvasSize, canvasSize);
       drawGrid();
@@ -143,7 +140,7 @@
       drawSelected();
     }
 
-    // Draw all dots (unselected in gray)
+    // Draw every dot in gray
     function drawGrid() {
       ctx.fillStyle = '#555';
       for (let i = 0; i < gridSize; i++) {
@@ -156,18 +153,7 @@
       }
     }
 
-    // Draw selected dots (blue)
-    function drawSelected() {
-      ctx.fillStyle = '#0b72b9';
-      for (let { i, j } of selected) {
-        const { x, y } = gridCoords[i][j];
-        ctx.beginPath();
-        ctx.arc(x, y, dotRadius, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-
-    // Draw lines connecting every pair of selected dots
+    // Draw lines between every pair of selected dots
     function drawConnectionLines() {
       if (selected.length < 2) return;
       ctx.strokeStyle = '#888';
@@ -186,7 +172,18 @@
       }
     }
 
-    // Blink a dot in red if the click conflicts
+    // Draw selected dots in blue
+    function drawSelected() {
+      ctx.fillStyle = '#0b72b9';
+      for (let { i, j } of selected) {
+        const { x, y } = gridCoords[i][j];
+        ctx.beginPath();
+        ctx.arc(x, y, dotRadius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Blink a clicked‐dot red if it would cause a slope conflict
     function blinkInvalid(i, j) {
       const { x, y } = gridCoords[i][j];
       ctx.fillStyle = 'red';
@@ -198,23 +195,21 @@
       }, 150);
     }
 
-    // Remove a selected dot (i,j) and rebuild usedSlopes
+    // Remove a selected dot and rebuild usedSlopes
     function removeSelection(i, j) {
       const idx = selected.findIndex(pt => pt.i === i && pt.j === j);
       if (idx === -1) return;
       selected.splice(idx, 1);
       usedSlopes.clear();
-      // Recompute all slopes among the remaining selected dots
       for (let a = 0; a < selected.length; a++) {
         for (let b = a + 1; b < selected.length; b++) {
-          const A = selected[a];
-          const B = selected[b];
+          const A = selected[a], B = selected[b];
           usedSlopes.add(computeSlope(A.i, A.j, B.i, B.j));
         }
       }
     }
 
-    // Check if we can add (i,j) without repeating a slope
+    // Check if adding (i,j) would repeat any slope
     function canAdd(i, j) {
       for (let { i: ii, j: jj } of selected) {
         const s = computeSlope(ii, jj, i, j);
@@ -226,15 +221,15 @@
     }
 
 
-    // ─────────── 3) INITIALIZATION FUNCTION ───────────
+    // ─────────── 3) INITIALIZE THE GAME ───────────
     function initGame() {
-      // 1) Read the chosen gridSize
+      // 1) Read gridSize from dropdown
       gridSize = parseInt(gridSizeSelect.value, 10);
 
-      // 2) Compute spacing
+      // 2) Compute cellSize so dots fit within margins
       cellSize = (canvasSize - 2 * margin) / (gridSize - 1);
 
-      // 3) Build gridCoords[i][j] = { x, y }
+      // 3) Build gridCoords[i][j] = canvas‐coordinates of each dot
       gridCoords = new Array(gridSize);
       for (let i = 0; i < gridSize; i++) {
         gridCoords[i] = new Array(gridSize);
@@ -246,23 +241,23 @@
         }
       }
 
-      // 4) Clear selections
+      // 4) Clear selections and slopes
       selected = [];
       usedSlopes.clear();
 
-      // 5) Update info and draw
+      // 5) Update info text and draw for the first time
       updateInfo();
       drawAll();
     }
 
 
-    // ─────────── 4) CANVAS CLICK HANDLING ───────────
+    // ─────────── 4) HANDLE CANVAS CLICKS ───────────
     canvas.addEventListener('click', (evt) => {
       const rect = canvas.getBoundingClientRect();
       const clickX = evt.clientX - rect.left;
       const clickY = evt.clientY - rect.top;
 
-      // Determine which dot (i,j) was clicked (distance ≤ dotRadius+3)
+      // Find which dot (i,j) was clicked (within radius)
       for (let i = 0; i < gridSize; i++) {
         for (let j = 0; j < gridSize; j++) {
           const { x, y } = gridCoords[i][j];
@@ -276,11 +271,11 @@
               drawAll();
               return;
             }
-            // Otherwise, try to add
+            // Otherwise, try to add it
             if (!canAdd(i, j)) {
               blinkInvalid(i, j);
             } else {
-              // Collect new slopes
+              // Compute and store new slopes
               const newSlopes = [];
               for (let { i: ii, j: jj } of selected) {
                 newSlopes.push(computeSlope(ii, jj, i, j));
@@ -300,11 +295,10 @@
 
 
     // ─────────── 5) HOOK UP CONTROLS ───────────
-    // When the user clicks “Start / Reset” or changes the dropdown, reinitialize
     resetBtn.addEventListener('click', initGame);
     gridSizeSelect.addEventListener('change', initGame);
 
-    // On page load, initialize once
+    // On page load, initialize everything once
     window.addEventListener('load', initGame);
   </script>
 </body>
