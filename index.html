@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Distinct‐Slope Dot Grid Game</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      margin: 20px;
+    }
+    #gameCanvas {
+      border: 1px solid #444;
+      background-color: #fafafa;
+      cursor: pointer;
+    }
+    #info {
+      margin-top: 10px;
+      font-size: 1.1em;
+    }
+    #resetBtn {
+      margin-top: 10px;
+      padding: 8px 16px;
+      font-size: 1em;
+    }
+  </style>
+</head>
+<body>
+  <h2>Pick as Many Dots as You Can (No Two Slopes the Same)</h2>
+  <canvas id="gameCanvas" width="450" height="450"></canvas>
+  <div id="info">
+    Selected: <span id="count">0</span> / <span id="maxPossible">?</span> dots
+  </div>
+  <button id="resetBtn">Reset</button>
+
+  <script>
+    // ─────────── 1) CONFIGURATION ───────────
+    // You can change gridSize to, e.g., 5, 6, 8, 10, etc.
+    const gridSize = 5; 
+    const canvasSize = 450;               // px
+    const dotRadius = 8;                  // px
+    const margin = 40;                    // px of padding around the grid
+    const ctx = document.getElementById('gameCanvas').getContext('2d');
+
+    // Compute the spacing between grid lines so the dots fit inside the margin
+    const usableSize = canvasSize - 2*margin; // total space for (gridSize-1) intervals
+    const cellSize = usableSize / (gridSize - 1);
+
+    // Keep track of which grid‐points are currently selected
+    // We'll store them as an array of {i,j} where 0 ≤ i,j < gridSize
+    let selected = [];
+
+    // A set of “used slopes,” each stored in reduced form as "dy/dx" string
+    // We'll use the convention dx>0 whenever possible; for vertical, we store "inf".
+    let usedSlopes = new Set();
+
+    // Precompute all (x, y) canvas coordinates of the grid dots:
+    // gridCoords[i][j] = { x: ..., y: ... }
+    const gridCoords = [];
+    for (let i = 0; i < gridSize; i++) {
+      gridCoords[i] = [];
+      for (let j = 0; j < gridSize; j++) {
+        gridCoords[i][j] = {
+          x: margin + j * cellSize,
+          y: margin + i * cellSize
+        };
+      }
+    }
+
+    // Update the “max possible” display: theoretically, in 2D one cannot exceed gridSize+1
+    document.getElementById('maxPossible').textContent = gridSize + 1;
+
+
+    // ─────────── 2) DRAWING ROUTINES ───────────
+
+    // Draw the background grid of unselected dots
+    function drawGrid() {
+      ctx.clearRect(0, 0, canvasSize, canvasSize);
+      ctx.fillStyle = '#555';
+      for (let i = 0; i < gridSize; i++) {
+        for (let j = 0; j < gridSize; j++) {
+          const { x, y } = gridCoords[i][j];
+          ctx.beginPath();
+          ctx.arc(x, y, dotRadius, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    // Draw the selected dots (colored differently)
+    function drawSelected() {
+      ctx.fillStyle = '#0b72b9'; // blue
+      for (let { i, j } of selected) {
+        const { x, y } = gridCoords[i][j];
+        ctx.beginPath();
+        ctx.arc(x, y, dotRadius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // If the user clicks an invalid dot, we “blink” it in red for a short moment
+    function blinkInvalid(i, j) {
+      const { x, y } = gridCoords[i][j];
+      ctx.fillStyle = 'red';
+      ctx.beginPath();
+      ctx.arc(x, y, dotRadius + 2, 0, Math.PI * 2);
+      ctx.fill();
+      setTimeout(() => {
+        drawAll();
+      }, 200);
+    }
+
+    // Redraw everything
+    function drawAll() {
+      drawGrid();
+      drawSelected();
+    }
+
+
+    // ─────────── 3) SLOPE‐CHECKING UTILITIES ───────────
+
+    // Return a reduced slope for the pair of grid‐indices (i1,j1) → (i2,j2).
+    // We want dy/dx in lowest terms, with dx>0 if possible; if dx=0, return "inf".
+    function computeSlope(i1, j1, i2, j2) {
+      const dx = j2 - j1;
+      const dy = i1 - i2; 
+      // (Notice i increases downward in canvas, so slope = (rowDiff)/colDiff).
+      if (dx === 0) {
+        return 'inf';
+      }
+      // Reduce fraction dy/dx:
+      let g = gcd(Math.abs(dy), Math.abs(dx));
+      let rDy = dy / g;
+      let rDx = dx / g;
+      // Force rDx > 0:
+      if (rDx < 0) {
+        rDx = -rDx;
+        rDy = -rDy;
+      }
+      return rDy + '/' + rDx;
+    }
+
+    // Compute the greatest common divisor (Euclidean)
+    function gcd(a, b) {
+      while (b !== 0) {
+        const t = b;
+        b = a % b;
+        a = t;
+      }
+      return a;
+    }
+
+
+    // ─────────── 4) CLICK‐HANDLER ───────────
+
+    document.getElementById('gameCanvas').addEventListener('click', (evt) => {
+      const rect = ctx.canvas.getBoundingClientRect();
+      const clickX = evt.clientX - rect.left;
+      const clickY = evt.clientY - rect.top;
+
+      // Find which grid dot is closest to the click (within a radius)
+      for (let i = 0; i < gridSize; i++) {
+        for (let j = 0; j < gridSize; j++) {
+          const { x, y } = gridCoords[i][j];
+          const dist = Math.hypot(clickX - x, clickY - y);
+          if (dist <= dotRadius + 3) {
+            // User clicked “point (i,j)”
+            const alreadySelected = selected.some(pt => pt.i === i && pt.j === j);
+            if (alreadySelected) {
+              // If they clicked an already‐selected dot, we deselect it:
+              //   • Remove it from selected array.
+              //   • Remove all slopes that involved (i,j) from usedSlopes.
+              removeSelection(i, j);
+              updateInfo();
+              drawAll();
+            } else {
+              // We want to add (i,j). First, compute all new slopes from (i,j) to existing.
+              let conflict = false;
+              const newSlopes = [];
+              for (let { i: ii, j: jj } of selected) {
+                const slope = computeSlope(ii, jj, i, j);
+                if (usedSlopes.has(slope)) {
+                  conflict = true;
+                  break;
+                }
+                newSlopes.push(slope);
+              }
+              if (conflict) {
+                blinkInvalid(i, j);
+              } else {
+                // No conflict → accept selection
+                selected.push({ i, j });
+                for (let s of newSlopes) {
+                  usedSlopes.add(s);
+                }
+                updateInfo();
+                drawAll();
+              }
+            }
+            return;
+          }
+        }
+      }
+    });
+
+    // Remove a previously‐selected dot (i,j) and all its associated slopes
+    function removeSelection(i, j) {
+      // Find its index in the array
+      const idx = selected.findIndex(pt => pt.i === i && pt.j === j);
+      if (idx < 0) return;
+      // Remove it
+      selected.splice(idx, 1);
+      // Recompute usedSlopes from scratch (simplest)
+      usedSlopes.clear();
+      for (let a = 0; a < selected.length; a++) {
+        for (let b = a+1; b < selected.length; b++) {
+          const { i: i1, j: j1 } = selected[a];
+          const { i: i2, j: j2 } = selected[b];
+          usedSlopes.add(computeSlope(i1, j1, i2, j2));
+        }
+      }
+    }
+
+    // Update the progress text
+    function updateInfo() {
+      document.getElementById('count').textContent = selected.length;
+    }
+
+    // “Reset” button
+    document.getElementById('resetBtn').addEventListener('click', () => {
+      selected = [];
+      usedSlopes.clear();
+      updateInfo();
+      drawAll();
+    });
+
+
+    // ─────────── 5) INITIALIZE ───────────
+    drawAll();
+    updateInfo();
+  </script>
+</body>
+</html>
