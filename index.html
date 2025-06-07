@@ -42,6 +42,7 @@
   <div id="controls">
     <label for="gridSizeSelect">Grid Size:&nbsp;</label>
     <select id="gridSizeSelect">
+      <option value="2">2 × 2</option>
       <option value="3">3 × 3</option>
       <option value="4">4 × 4</option>
       <option value="5" selected>5 × 5</option>
@@ -126,7 +127,7 @@
       countSpan.textContent = selected.length;
       maxSpan.textContent = gridSize + 1;
       if (selected.length === gridSize + 1) {
-        winMsgDiv.textContent = "🎉 You Win! 🎉";
+        winMsgDiv.textContent = "Complete!";
       } else {
         winMsgDiv.textContent = "";
       }
