@@ -2,38 +2,50 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <!-- 1) Responsive viewport for mobile devices -->
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Interactive Distinct‐Slope Dot Grid</title>
   <style>
     body {
       font-family: sans-serif;
       text-align: center;
-      margin: 20px;
+      margin: 10px;
     }
+
     #controls {
-      margin-bottom: 15px;
+      margin-bottom: 10px;
       font-size: 1em;
     }
-    /* 2) Make canvas fluid: fill available width, cap at 500px */
+
+    /* Make canvas responsive and centered */
+    #canvasContainer {
+      width: 90vw;
+      max-width: 500px;
+      margin: 0 auto;
+      position: relative;
+    }
+
     #gameCanvas {
       width: 100%;
-      max-width: 500px;
-      height: auto;           /* JS will enforce square aspect */
+      height: auto;
       border: 1px solid #444;
       background-color: #fafafa;
       cursor: pointer;
+      touch-action: manipulation;
+      display: block;
     }
+
     #info {
       margin-top: 10px;
       font-size: 1.1em;
     }
+
     #winMsg {
       margin-top: 8px;
       font-size: 1.3em;
       color: green;
       font-weight: bold;
     }
+
     #resetBtn {
       margin-top: 10px;
       padding: 8px 16px;
@@ -61,7 +73,9 @@
     <button id="resetBtn">Start / Reset</button>
   </div>
 
-  <canvas id="gameCanvas"></canvas>
+  <div id="canvasContainer">
+    <canvas id="gameCanvas"></canvas>
+  </div>
 
   <div id="info">
     Selected: <span id="count">0</span> /
@@ -70,11 +84,8 @@
   <div id="winMsg"></div>
 
   <script>
-    // ───── GLOBAL STATE ─────
     let gridSize = 5;
-    const margin = 40;              // px padding around grid
-    const dotRadius = 8;            // px radius for each dot
-    let cellSize;                   // computed later
+    let margin, dotRadius, cellSize;
     let gridCoords = [];
     let selected = [];
     let usedSlopes = new Set();
@@ -85,40 +96,37 @@
     const maxSpan   = document.getElementById('maxPossible');
     const winMsgDiv = document.getElementById('winMsg');
     const gridSizeSelect = document.getElementById('gridSizeSelect');
-    const resetBtn       = document.getElementById('resetBtn');
+    const resetBtn = document.getElementById('resetBtn');
 
-    // ───── UTILITY ─────
     function gcd(a, b) {
       a = Math.abs(a); b = Math.abs(b);
-      while (b !== 0) {
-        const t = b; b = a % b; a = t;
-      }
+      while (b !== 0) [a, b] = [b, a % b];
       return a;
     }
+
     function computeSlope(i1, j1, i2, j2) {
       const dx = j2 - j1;
-      const dy = i1 - i2; // invert because canvas y grows downward
+      const dy = i1 - i2;
       if (dx === 0) return 'inf';
       let g = gcd(dy, dx);
       let rDy = dy / g, rDx = dx / g;
       if (rDx < 0) { rDx = -rDx; rDy = -rDy; }
       return `${rDy}/${rDx}`;
     }
+
     function updateInfo() {
       countSpan.textContent = selected.length;
-      maxSpan.textContent   = gridSize + 1;
-      winMsgDiv.textContent = (selected.length === gridSize + 1)
-        ? "Complete!"
-        : "";
+      maxSpan.textContent = gridSize + 1;
+      winMsgDiv.textContent = (selected.length === gridSize + 1) ? "Complete!" : "";
     }
 
-    // ───── DRAWING ─────
     function drawAll() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       drawGrid();
       drawConnectionLines();
       drawSelected();
     }
+
     function drawGrid() {
       ctx.fillStyle = '#555';
       for (let i=0; i<gridSize; i++) {
@@ -130,6 +138,7 @@
         }
       }
     }
+
     function drawConnectionLines() {
       if (selected.length < 2) return;
       ctx.strokeStyle = '#888';
@@ -145,6 +154,7 @@
         }
       }
     }
+
     function drawSelected() {
       ctx.fillStyle = '#0b72b9';
       for (let {i,j} of selected) {
@@ -154,6 +164,7 @@
         ctx.fill();
       }
     }
+
     function blinkInvalid(i, j) {
       const {x,y} = gridCoords[i][j];
       ctx.fillStyle = 'red';
@@ -162,6 +173,7 @@
       ctx.fill();
       setTimeout(drawAll, 150);
     }
+
     function removeSelection(i, j) {
       const idx = selected.findIndex(pt => pt.i===i && pt.j===j);
       if (idx===-1) return;
@@ -174,6 +186,7 @@
         }
       }
     }
+
     function canAdd(i, j) {
       for (let {i:ii,j:jj} of selected) {
         if (usedSlopes.has(computeSlope(ii,jj,i,j))) return false;
@@ -181,36 +194,35 @@
       return true;
     }
 
-    // ───── RESIZE HANDLING ─────
     function resizeCanvas() {
       const w = canvas.clientWidth;
       canvas.width = w;
       canvas.height = w;
     }
 
-    // ───── GAME INITIALIZATION ─────
     function initGame() {
-      // (re)read grid size
       gridSize = parseInt(gridSizeSelect.value, 10);
-      // resize & recalc
       resizeCanvas();
+
+      // dynamic scaling for any screen
       const canvasSize = canvas.width;
+      margin = canvasSize * 0.08; // proportional margin
+      dotRadius = Math.max(4, canvasSize * 0.015); // scale dots
       cellSize = (canvasSize - 2*margin) / (gridSize - 1);
-      // build coords
+
       gridCoords = Array.from({length: gridSize}, (_, i) =>
         Array.from({length: gridSize}, (_, j) => ({
           x: margin + j*cellSize,
           y: margin + i*cellSize
         }))
       );
-      // reset state
+
       selected = [];
       usedSlopes.clear();
       updateInfo();
       drawAll();
     }
 
-    // ───── EVENT LISTENERS ─────
     canvas.addEventListener('click', evt => {
       const rect = canvas.getBoundingClientRect();
       const clickX = evt.clientX - rect.left;
@@ -219,18 +231,15 @@
         for (let j=0; j<gridSize; j++) {
           const {x,y} = gridCoords[i][j];
           if (Math.hypot(clickX-x, clickY-y) <= dotRadius+3) {
-            // toggle deselect?
             if (selected.some(pt => pt.i===i && pt.j===j)) {
               removeSelection(i,j);
               updateInfo();
               drawAll();
               return;
             }
-            // try to add
             if (!canAdd(i,j)) {
               blinkInvalid(i,j);
             } else {
-              // add slopes & point
               selected.forEach(pt => usedSlopes.add(computeSlope(pt.i,pt.j,i,j)));
               selected.push({i,j});
               updateInfo();
@@ -249,3 +258,4 @@
   </script>
 </body>
 </html>
+
