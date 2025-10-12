@@ -1,236 +1,244 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Interactive Distinct‐Slope Dot Grid</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Interactive Distinct-Slope Dot Grid (Responsive)</title>
   <style>
-    body {
+    /* Make the page take the whole iframe area and remove margins */
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden; /* prevent page scroll */
       font-family: sans-serif;
-      text-align: center;
-      margin: 10px;
+      -webkit-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
+      background: #fff;
     }
 
-    #controls {
-      margin-bottom: 10px;
-      font-size: 1em;
-    }
-
-    /* Make canvas responsive and centered */
-    #canvasContainer {
-      width: 90vw;
-      max-width: 500px;
-      margin: 0 auto;
-      position: relative;
-    }
-
-    #gameCanvas {
+    /* center the canvas inside the available space */
+    #root {
       width: 100%;
-      height: auto;
-      border: 1px solid #444;
-      background-color: #fafafa;
-      cursor: pointer;
-      touch-action: manipulation;
+      height: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    /* canvas will be sized by JS to a square that fits the viewport */
+    canvas {
       display: block;
+      box-shadow: 0 0 0 1px #444 inset;
+      background: #fafafa;
+      touch-action: manipulation;
     }
 
-    #info {
-      margin-top: 10px;
-      font-size: 1.1em;
+    /* compact controls overlay (optional) */
+    #ui {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      right: 8px;
+      display:flex;
+      justify-content:space-between;
+      gap:8px;
+      align-items:center;
+      pointer-events: auto;
+      z-index: 20;
+      color: #222;
+      font-size: 14px;
     }
-
-    #winMsg {
-      margin-top: 8px;
-      font-size: 1.3em;
-      color: green;
-      font-weight: bold;
-    }
-
-    #resetBtn {
-      margin-top: 10px;
-      padding: 8px 16px;
-      font-size: 1em;
-    }
+    select, button { font-size: 14px; padding: 6px; }
+    #winMsg { color: green; font-weight:600; margin-left:8px; }
   </style>
 </head>
 <body>
-  <h2>Pick as Many Dots as You Can (No Two Slopes the Same)</h2>
-
-  <div id="controls">
-    <label for="gridSizeSelect">Grid Size:&nbsp;</label>
-    <select id="gridSizeSelect">
-      <option value="2">2 × 2</option>
-      <option value="3">3 × 3</option>
-      <option value="4">4 × 4</option>
-      <option value="5" selected>5 × 5</option>
-      <option value="6">6 × 6</option>
-      <option value="7">7 × 7</option>
-      <option value="8">8 × 8</option>
-      <option value="9">9 × 9</option>
-      <option value="10">10 × 10</option>
-    </select>
-    &nbsp;&nbsp;
-    <button id="resetBtn">Start / Reset</button>
-  </div>
-
-  <div id="canvasContainer">
+  <div id="root">
     <canvas id="gameCanvas"></canvas>
+    <div id="ui">
+      <div>
+        Grid:
+        <select id="gridSizeSelect">
+          <option value="2">2×2</option>
+          <option value="3">3×3</option>
+          <option value="4">4×4</option>
+          <option value="5" selected>5×5</option>
+          <option value="6">6×6</option>
+          <option value="7">7×7</option>
+          <option value="8">8×8</option>
+          <option value="9">9×9</option>
+          <option value="10">10×10</option>
+        </select>
+        <button id="resetBtn">Start / Reset</button>
+      </div>
+      <div>
+        Selected: <span id="count">0</span> /
+        <span id="maxPossible">?</span> <span id="winMsg"></span>
+      </div>
+    </div>
   </div>
-
-  <div id="info">
-    Selected: <span id="count">0</span> /
-    <span id="maxPossible">?</span> dots
-  </div>
-  <div id="winMsg"></div>
 
   <script>
+    // ---------- State ----------
     let gridSize = 5;
-    let margin, dotRadius, cellSize;
+    let sizePx = 400;        // actual square size (computed)
+    let margin = 40;         // computed relative later
+    let dotRadius = 8;       // computed relative later
+    let cellSize;
     let gridCoords = [];
     let selected = [];
     let usedSlopes = new Set();
 
     const canvas = document.getElementById('gameCanvas');
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { alpha: false });
     const countSpan = document.getElementById('count');
-    const maxSpan   = document.getElementById('maxPossible');
-    const winMsgDiv = document.getElementById('winMsg');
+    const maxSpan = document.getElementById('maxPossible');
+    const winMsg = document.getElementById('winMsg');
     const gridSizeSelect = document.getElementById('gridSizeSelect');
     const resetBtn = document.getElementById('resetBtn');
 
-    function gcd(a, b) {
+    // ---------- Utilities ----------
+    function gcd(a,b){
       a = Math.abs(a); b = Math.abs(b);
-      while (b !== 0) [a, b] = [b, a % b];
+      while (b !== 0) { const t = b; b = a % b; a = t; }
       return a;
     }
-
-    function computeSlope(i1, j1, i2, j2) {
+    function computeSlope(i1,j1,i2,j2){
       const dx = j2 - j1;
-      const dy = i1 - i2;
+      const dy = i1 - i2; // invert because canvas y grows downward
       if (dx === 0) return 'inf';
       let g = gcd(dy, dx);
       let rDy = dy / g, rDx = dx / g;
       if (rDx < 0) { rDx = -rDx; rDy = -rDy; }
       return `${rDy}/${rDx}`;
     }
-
-    function updateInfo() {
+    function updateInfo(){
       countSpan.textContent = selected.length;
       maxSpan.textContent = gridSize + 1;
-      winMsgDiv.textContent = (selected.length === gridSize + 1) ? "Complete!" : "";
+      winMsg.textContent = (selected.length === gridSize + 1) ? "Complete!" : "";
     }
 
-    function drawAll() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      drawGrid();
-      drawConnectionLines();
-      drawSelected();
+    // ---------- Drawing ----------
+    function drawAll(){
+      ctx.clearRect(0,0,canvas.width, canvas.height);
+      drawGrid(); drawConnectionLines(); drawSelected();
     }
-
-    function drawGrid() {
+    function drawGrid(){
       ctx.fillStyle = '#555';
-      for (let i=0; i<gridSize; i++) {
-        for (let j=0; j<gridSize; j++) {
+      for (let i=0;i<gridSize;i++){
+        for (let j=0;j<gridSize;j++){
           const {x,y} = gridCoords[i][j];
           ctx.beginPath();
-          ctx.arc(x, y, dotRadius, 0, Math.PI*2);
+          ctx.arc(x,y,dotRadius,0,Math.PI*2);
           ctx.fill();
         }
       }
     }
-
-    function drawConnectionLines() {
+    function drawConnectionLines(){
       if (selected.length < 2) return;
       ctx.strokeStyle = '#888';
-      ctx.lineWidth = 2;
-      for (let a = 0; a < selected.length; a++) {
-        for (let b = a + 1; b < selected.length; b++) {
+      ctx.lineWidth = Math.max(1, Math.round(sizePx * 0.004));
+      for (let a=0;a<selected.length;a++){
+        for (let b=a+1;b<selected.length;b++){
           const A = selected[a], B = selected[b];
           const p1 = gridCoords[A.i][A.j], p2 = gridCoords[B.i][B.j];
           ctx.beginPath();
-          ctx.moveTo(p1.x, p1.y);
-          ctx.lineTo(p2.x, p2.y);
+          ctx.moveTo(p1.x,p1.y);
+          ctx.lineTo(p2.x,p2.y);
           ctx.stroke();
         }
       }
     }
-
-    function drawSelected() {
+    function drawSelected(){
       ctx.fillStyle = '#0b72b9';
-      for (let {i,j} of selected) {
+      for (let {i,j} of selected){
         const {x,y} = gridCoords[i][j];
         ctx.beginPath();
-        ctx.arc(x, y, dotRadius, 0, Math.PI*2);
+        ctx.arc(x,y,dotRadius,0,Math.PI*2);
         ctx.fill();
       }
     }
-
-    function blinkInvalid(i, j) {
+    function blinkInvalid(i,j){
       const {x,y} = gridCoords[i][j];
       ctx.fillStyle = 'red';
       ctx.beginPath();
-      ctx.arc(x, y, dotRadius+2, 0, Math.PI*2);
+      ctx.arc(x,y,dotRadius+2,0,Math.PI*2);
       ctx.fill();
-      setTimeout(drawAll, 150);
+      setTimeout(drawAll, 160);
     }
 
-    function removeSelection(i, j) {
+    // ---------- Selection logic ----------
+    function removeSelection(i,j){
       const idx = selected.findIndex(pt => pt.i===i && pt.j===j);
-      if (idx===-1) return;
+      if (idx === -1) return;
       selected.splice(idx,1);
       usedSlopes.clear();
-      for (let a=0; a<selected.length; a++) {
-        for (let b=a+1; b<selected.length; b++) {
-          const A=selected[a], B=selected[b];
+      for (let a=0;a<selected.length;a++){
+        for (let b=a+1;b<selected.length;b++){
+          const A = selected[a], B = selected[b];
           usedSlopes.add(computeSlope(A.i,A.j,B.i,B.j));
         }
       }
     }
-
-    function canAdd(i, j) {
-      for (let {i:ii,j:jj} of selected) {
+    function canAdd(i,j){
+      for (let {i:ii,j:jj} of selected){
         if (usedSlopes.has(computeSlope(ii,jj,i,j))) return false;
       }
       return true;
     }
 
-    function resizeCanvas() {
-      const w = canvas.clientWidth;
-      canvas.width = w;
-      canvas.height = w;
-    }
+    // ---------- resize / layout ----------
+    function layoutCanvas(){
+      // Choose the largest square that fits the iframe viewport
+      const W = window.innerWidth;
+      const H = window.innerHeight;
+      sizePx = Math.floor(Math.min(W, H) * 0.9); // 90% of smaller side
+      if (sizePx < 120) sizePx = Math.max(120, Math.floor(Math.min(W,H) * 0.85));
 
-    function initGame() {
-      gridSize = parseInt(gridSizeSelect.value, 10);
-      resizeCanvas();
+      // set canvas pixel dimensions (use CSS pixel size)
+      canvas.style.width = sizePx + 'px';
+      canvas.style.height = sizePx + 'px';
 
-      // dynamic scaling for any screen
-      const canvasSize = canvas.width;
-      margin = canvasSize * 0.08; // proportional margin
-      dotRadius = Math.max(4, canvasSize * 0.015); // scale dots
-      cellSize = (canvasSize - 2*margin) / (gridSize - 1);
+      // Adjust for devicePixelRatio to keep lines crisp
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      canvas.width = Math.round(sizePx * dpr);
+      canvas.height = Math.round(sizePx * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // scale drawing operations
 
-      gridCoords = Array.from({length: gridSize}, (_, i) =>
-        Array.from({length: gridSize}, (_, j) => ({
+      // compute relative layout values
+      margin = Math.max(8, sizePx * 0.08);
+      dotRadius = Math.max(4, Math.round(sizePx * 0.02)); // scale with size
+      cellSize = (sizePx - 2*margin) / (gridSize - 1);
+
+      // build coords
+      gridCoords = Array.from({length:gridSize}, (_,i) =>
+        Array.from({length:gridSize}, (_,j) => ({
           x: margin + j*cellSize,
           y: margin + i*cellSize
         }))
       );
+    }
 
+    function initGame(){
+      gridSize = parseInt(gridSizeSelect.value, 10);
+      layoutCanvas();
       selected = [];
       usedSlopes.clear();
       updateInfo();
       drawAll();
     }
 
+    // ---------- events ----------
     canvas.addEventListener('click', evt => {
       const rect = canvas.getBoundingClientRect();
-      const clickX = evt.clientX - rect.left;
-      const clickY = evt.clientY - rect.top;
-      for (let i=0; i<gridSize; i++) {
-        for (let j=0; j<gridSize; j++) {
+      const clickX = (evt.clientX - rect.left);
+      const clickY = (evt.clientY - rect.top);
+      for (let i=0;i<gridSize;i++){
+        for (let j=0;j<gridSize;j++){
           const {x,y} = gridCoords[i][j];
-          if (Math.hypot(clickX-x, clickY-y) <= dotRadius+3) {
+          if (Math.hypot(clickX-x, clickY-y) <= (dotRadius + 6)) {
             if (selected.some(pt => pt.i===i && pt.j===j)) {
               removeSelection(i,j);
               updateInfo();
@@ -251,11 +259,36 @@
       }
     });
 
+    // allow touch taps
+    canvas.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) {
+        const t = e.touches[0];
+        const rect = canvas.getBoundingClientRect();
+        const fake = { clientX: t.clientX, clientY: t.clientY };
+        canvas.dispatchEvent(new MouseEvent('click', fake));
+      }
+      e.preventDefault();
+    }, { passive: false });
+
+    // window resize should re-layout and preserve selections if possible
+    let resizeTimer;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        // re-layout and redraw
+        const prevSelected = selected.slice(); // keep indexes
+        layoutCanvas();
+        // Recompute selection positions using same i/j - they stay valid
+        updateInfo();
+        drawAll();
+      }, 80);
+    });
+
     resetBtn.addEventListener('click', initGame);
     gridSizeSelect.addEventListener('change', initGame);
-    window.addEventListener('resize', initGame);
+
+    // init on load
     window.addEventListener('load', initGame);
   </script>
 </body>
 </html>
-
