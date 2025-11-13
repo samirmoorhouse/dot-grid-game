@@ -7,37 +7,54 @@
   <style>
     html, body {
       height: 100%;
+      width: 100%;
       margin: 0;
       padding: 0;
-      background: #ffffff !important;
-      overflow: hidden;
-      font-family: system-ui, sans-serif;
+      overflow: hidden;          /* avoid scrollbars */
+      background: #ffffff;       /* pure white */
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 16px;
+      user-select: none;
+      -webkit-user-select: none;
     }
 
-    /* Column layout – UI at top, game below */
     #root {
+      position: relative;
+      width: 100%;
+      height: 100%;
       display: flex;
       flex-direction: column;
-      height: 100%;
-      width: 100%;
+      justify-content: center;
+      align-items: center;
+      background: #ffffff;       /* make sure root is white */
       box-sizing: border-box;
-      background: #ffffff !important;
+      overflow: hidden;
       padding: 8px;
       gap: 8px;
     }
 
-    /* UI bar */
+    /* UI is now ABOVE the canvas, not overlayed */
     #ui {
-      flex-shrink: 0;
-      background: #ffffff;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 16px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 12px;
+      max-width: 100%;
+      box-sizing: border-box;
+      color: #222;
+      font-size: 15px;
+      background: #ffffff;                /* white bubble */
       border-radius: 999px;
       box-shadow: 0 2px 6px rgba(0,0,0,0.18);
-      padding: 8px 16px;
+    }
+
+    #ui-left, #ui-right {
       display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
       align-items: center;
-      gap: 16px;
-      font-size: 16px;
-      z-index: 10;
     }
 
     select, button {
@@ -49,47 +66,66 @@
       cursor: pointer;
     }
 
-    /* Canvas wrapper gets all remaining space */
+    select:focus, button:focus {
+      outline: 2px solid #007acc;
+      outline-offset: 1px;
+    }
+
+    #winMsg {
+      color: #2f8f2f;
+      font-weight: 600;
+      margin-left: 4px;
+    }
+
     #canvasWrapper {
-      flex: 1;
-      min-height: 0;   /* critical: prevents overflow */
       display: flex;
       justify-content: center;
       align-items: center;
-      background: #ffffff !important;
+      flex: 1;
+      width: 100%;
+      overflow: hidden;
     }
 
     canvas {
-      background: #ffffff !important;
+      display: block;
+      background: #ffffff;       /* grid area white too */
       border: 2px solid #555;
       border-radius: 12px;
       box-shadow: 0 0 8px rgba(0,0,0,0.1);
-      display: block;
       touch-action: manipulation;
+    }
+
+    @media (max-width: 600px) {
+      #ui {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px 8px;
+      }
     }
   </style>
 </head>
 <body>
   <div id="root">
     <div id="ui">
-      <span>Grid:</span>
-      <select id="gridSizeSelect">
-        <option value="2">2×2</option>
-        <option value="3">3×3</option>
-        <option value="4">4×4</option>
-        <option value="5" selected>5×5</option>
-        <option value="6">6×6</option>
-        <option value="7">7×7</option>
-        <option value="8">8×8</option>
-        <option value="9">9×9</option>
-        <option value="10">10×10</option>
-      </select>
-      <button id="resetBtn">Start / Reset</button>
-      <span>
-        Selected: <span id="count">0</span> /
-        <span id="maxPossible">?</span>
-        <span id="winMsg" style="color:#2f8f2f;font-weight:bold;"></span>
-      </span>
+      <div id="ui-left">
+        <span>Grid:</span>
+        <select id="gridSizeSelect">
+          <option value="2">2×2</option>
+          <option value="3">3×3</option>
+          <option value="4">4×4</option>
+          <option value="5" selected>5×5</option>
+          <option value="6">6×6</option>
+          <option value="7">7×7</option>
+          <option value="8">8×8</option>
+          <option value="9">9×9</option>
+          <option value="10">10×10</option>
+        </select>
+        <button id="resetBtn">Start / Reset</button>
+      </div>
+      <div id="ui-right">
+        <span>Selected: <span id="count">0</span> / <span id="maxPossible">?</span></span>
+        <span id="winMsg"></span>
+      </div>
     </div>
 
     <div id="canvasWrapper">
@@ -98,126 +134,263 @@
   </div>
 
   <script>
-    /* (Your entire JS logic remains unchanged except layoutCanvas()) */
-
     let gridSize = 5;
-    let sizePx = 100;
+    let sizePx = 400;
     let margin = 40;
     let dotRadius = 8;
     let cellSize;
     let gridCoords = [];
     let selected = [];
     let usedSlopes = new Set();
+
     let hoverCell = null;
     let invalidFlashCell = null;
+    let invalidFlashTimeout = null;
 
     const canvas = document.getElementById('gameCanvas');
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { alpha: false });
+    const countSpan = document.getElementById('count');
+    const maxSpan = document.getElementById('maxPossible');
+    const winMsg = document.getElementById('winMsg');
+    const gridSizeSelect = document.getElementById('gridSizeSelect');
+    const resetBtn = document.getElementById('resetBtn');
+    const rootEl = document.getElementById('root');
     const uiEl = document.getElementById('ui');
-    const wrapperEl = document.getElementById('canvasWrapper');
 
-    function gcd(a,b){a=Math.abs(a);b=Math.abs(b);while(b)[a,b]=[b,a%b];return a;}
-    function computeSlope(i1,j1,i2,j2){
-      const dx=j2-j1, dy=i1-i2;
-      if(dx===0) return 'inf';
-      const g=gcd(dy,dx);
-      let rDy=dy/g, rDx=dx/g;
-      if(rDx<0){rDx=-rDx; rDy=-rDy;}
+    function gcd(a, b) {
+      a = Math.abs(a); b = Math.abs(b);
+      while (b) [a, b] = [b, a % b];
+      return a;
+    }
+
+    function computeSlope(i1, j1, i2, j2) {
+      const dx = j2 - j1;
+      const dy = i1 - i2;
+      if (dx === 0) return 'inf';
+      const g = gcd(dy, dx);
+      let rDy = dy / g, rDx = dx / g;
+      if (rDx < 0) { rDx = -rDx; rDy = -rDy; }
       return `${rDy}/${rDx}`;
     }
 
-    function updateInfo(){
-      document.getElementById('count').textContent=selected.length;
-      document.getElementById('maxPossible').textContent=gridSize+1;
-      document.getElementById('winMsg').textContent =
-        selected.length===gridSize+1 ? "Complete!" : "";
+    function updateInfo() {
+      countSpan.textContent = selected.length;
+      maxSpan.textContent = gridSize + 1;
+      winMsg.textContent = (selected.length === gridSize + 1) ? "Complete!" : "";
     }
 
-    function layoutCanvas(){
-      const rect = wrapperEl.getBoundingClientRect();
-      const side = Math.min(rect.width, rect.height);
-      sizePx = Math.max(150, side * 0.95);
-
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = sizePx * dpr;
-      canvas.height = sizePx * dpr;
-      canvas.style.width = sizePx + "px";
-      canvas.style.height = sizePx + "px";
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-      margin = sizePx * 0.08;
-      dotRadius = sizePx * 0.025;
-      cellSize = (sizePx - 2*margin) / (gridSize - 1);
-
-      gridCoords = Array.from({length:gridSize},(_,i)=>
-        Array.from({length:gridSize},(_,j)=>({
-          x:margin+j*cellSize,
-          y:margin+i*cellSize
-        }))
-      );
-    }
-
-    /* (All other JS logic remains the same: click detection, drawing, hover, slopes, etc.) */
-
-    function drawAll(){
-      ctx.clearRect(0,0,canvas.width,canvas.height);
-
-      // background white
-      ctx.fillStyle="#ffffff";
-      ctx.fillRect(0,0,canvas.width,canvas.height);
-
+    function drawAll() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
       drawGrid();
       drawConnections();
       drawHighlights();
     }
 
-    function drawGrid(){
-      ctx.fillStyle="#b0b0b0";
-      for(let i=0;i<gridSize;i++)
-        for(let j=0;j<gridSize;j++){
-          const p=gridCoords[i][j];
+    function drawGrid() {
+      ctx.fillStyle = '#b0b0b0';   // grey dots
+      for (let i = 0; i < gridSize; i++) {
+        for (let j = 0; j < gridSize; j++) {
+          const { x, y } = gridCoords[i][j];
           ctx.beginPath();
-          ctx.arc(p.x,p.y,dotRadius,0,Math.PI*2);
+          ctx.arc(x, y, dotRadius, 0, Math.PI * 2);
           ctx.fill();
         }
-    }
-
-    function drawConnections(){
-      ctx.strokeStyle="#999";
-      for(let a=0;a<selected.length;a++)
-      for(let b=a+1;b<selected.length;b++){
-        const A=selected[a], B=selected[b];
-        const p1=gridCoords[A.i][A.j], p2=gridCoords[B.i][B.j];
-        ctx.beginPath();
-        ctx.moveTo(p1.x,p1.y);
-        ctx.lineTo(p2.x,p2.y);
-        ctx.stroke();
       }
     }
 
-    function drawHighlights(){
-      // selected = blue
-      ctx.fillStyle="#007acc";
-      for(const {i,j} of selected){
-        const p=gridCoords[i][j];
+    function drawConnections() {
+      if (selected.length < 2) return;
+      ctx.strokeStyle = '#999';
+      ctx.lineWidth = Math.max(1, sizePx * 0.004);
+      for (let a = 0; a < selected.length; a++) {
+        for (let b = a + 1; b < selected.length; b++) {
+          const A = selected[a], B = selected[b];
+          const p1 = gridCoords[A.i][A.j], p2 = gridCoords[B.i][B.j];
+          ctx.beginPath();
+          ctx.moveTo(p1.x, p1.y);
+          ctx.lineTo(p2.x, p2.y);
+          ctx.stroke();
+        }
+      }
+    }
+
+    function drawHighlights() {
+      // Selected points: solid blue
+      ctx.fillStyle = '#007acc';
+      for (const { i, j } of selected) {
+        const { x, y } = gridCoords[i][j];
         ctx.beginPath();
-        ctx.arc(p.x,p.y,dotRadius,0,Math.PI*2);
+        ctx.arc(x, y, dotRadius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Hover preview
+      if (hoverCell) {
+        const { i, j } = hoverCell;
+        const alreadySelected = selected.some(p => p.i === i && p.j === j);
+        if (!alreadySelected) {
+          const { x, y } = gridCoords[i][j];
+          const invalid = !canAdd(i, j);
+          ctx.fillStyle = invalid ? '#d9534f' : '#007acc'; // red if invalid, blue if valid
+          ctx.beginPath();
+          ctx.arc(x, y, dotRadius + 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // Brief red flash on invalid click
+      if (invalidFlashCell) {
+        const { i, j } = invalidFlashCell;
+        const { x, y } = gridCoords[i][j];
+        ctx.fillStyle = '#d9534f';
+        ctx.beginPath();
+        ctx.arc(x, y, dotRadius + 3, 0, Math.PI * 2);
         ctx.fill();
       }
     }
 
-    function initGame(){
-      gridSize = parseInt(document.getElementById('gridSizeSelect').value);
-      selected = [];
-      usedSlopes.clear();
-      layoutCanvas();
+    function blinkInvalid(i, j) {
+      invalidFlashCell = { i, j };
+      if (invalidFlashTimeout) clearTimeout(invalidFlashTimeout);
       drawAll();
-      updateInfo();
+      invalidFlashTimeout = setTimeout(() => {
+        invalidFlashCell = null;
+        drawAll();
+      }, 180);
     }
 
-    document.getElementById('resetBtn').onclick = initGame;
-    document.getElementById('gridSizeSelect').onchange = initGame;
-    window.addEventListener('resize', ()=>{ layoutCanvas(); drawAll(); });
+    function removeSelection(i, j) {
+      selected = selected.filter(p => !(p.i === i && p.j === j));
+      usedSlopes.clear();
+      for (let a = 0; a < selected.length; a++) {
+        for (let b = a + 1; b < selected.length; b++) {
+          usedSlopes.add(
+            computeSlope(selected[a].i, selected[a].j, selected[b].i, selected[b].j)
+          );
+        }
+      }
+    }
+
+    function canAdd(i, j) {
+      for (let pt of selected) {
+        if (usedSlopes.has(computeSlope(pt.i, pt.j, i, j))) return false;
+      }
+      return true;
+    }
+
+    function layoutCanvas() {
+      const rootRect = rootEl.getBoundingClientRect();
+      const uiRect = uiEl.getBoundingClientRect();
+
+      const padding = 16; // little breathing room
+      const availableWidth = rootRect.width - padding;
+      const availableHeight = rootRect.height - uiRect.height - padding;
+
+      const side = Math.max(150, Math.min(availableWidth, availableHeight)); // keep it reasonable
+
+      sizePx = side;
+
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      canvas.width = sizePx * dpr;
+      canvas.height = sizePx * dpr;
+      canvas.style.width = sizePx + 'px';
+      canvas.style.height = sizePx + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      margin = sizePx * 0.08;
+      dotRadius = Math.max(4, Math.round(sizePx * 0.02));
+      cellSize = (sizePx - 2 * margin) / (gridSize - 1);
+
+      gridCoords = Array.from({ length: gridSize }, (_, i) =>
+        Array.from({ length: gridSize }, (_, j) => ({
+          x: margin + j * cellSize,
+          y: margin + i * cellSize
+        }))
+      );
+    }
+
+    function initGame() {
+      gridSize = parseInt(gridSizeSelect.value, 10);
+      selected = [];
+      usedSlopes.clear();
+      hoverCell = null;
+      invalidFlashCell = null;
+      if (invalidFlashTimeout) {
+        clearTimeout(invalidFlashTimeout);
+        invalidFlashTimeout = null;
+      }
+      layoutCanvas();
+      updateInfo();
+      drawAll();
+    }
+
+    function getCellFromEvent(evt) {
+      const rect = canvas.getBoundingClientRect();
+      const x = evt.clientX - rect.left;
+      const y = evt.clientY - rect.top;
+
+      for (let i = 0; i < gridSize; i++) {
+        for (let j = 0; j < gridSize; j++) {
+          const { x: dx, y: dy } = gridCoords[i][j];
+          if (Math.hypot(x - dx, y - dy) <= dotRadius + 8) {
+            return { i, j };
+          }
+        }
+      }
+      return null;
+    }
+
+    canvas.addEventListener('click', evt => {
+      const cell = getCellFromEvent(evt);
+      if (!cell) return;
+
+      const { i, j } = cell;
+
+      if (selected.some(p => p.i === i && p.j === j)) {
+        removeSelection(i, j);
+      } else if (!canAdd(i, j)) {
+        blinkInvalid(i, j);
+      } else {
+        for (let pt of selected) {
+          usedSlopes.add(computeSlope(pt.i, pt.j, i, j));
+        }
+        selected.push({ i, j });
+      }
+
+      updateInfo();
+      drawAll();
+    });
+
+    canvas.addEventListener('mousemove', evt => {
+      const cell = getCellFromEvent(evt);
+      if (!cell && !hoverCell) return;
+
+      if (
+        cell &&
+        hoverCell &&
+        cell.i === hoverCell.i &&
+        cell.j === hoverCell.j
+      ) {
+        return;
+      }
+
+      hoverCell = cell;
+      drawAll();
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+      hoverCell = null;
+      drawAll();
+    });
+
+    window.addEventListener('resize', () => {
+      layoutCanvas();
+      drawAll();
+    });
+
+    gridSizeSelect.addEventListener('change', initGame);
+    resetBtn.addEventListener('click', initGame);
+
     window.addEventListener('load', initGame);
   </script>
 </body>
