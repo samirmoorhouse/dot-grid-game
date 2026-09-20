@@ -10,8 +10,8 @@
       width: 100%;
       margin: 0;
       padding: 0;
-      overflow: hidden;          /* avoid scrollbars */
-      background: #ffffff;       /* pure white */
+      overflow: hidden;          
+      background: #ffffff;      
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       font-size: 16px;
       user-select: none;
@@ -26,14 +26,14 @@
       flex-direction: column;
       justify-content: center;
       align-items: center;
-      background: #ffffff;       /* make sure root is white */
+      background: #ffffff;       
       box-sizing: border-box;
       overflow: hidden;
       padding: 8px;
       gap: 8px;
     }
 
-    /* UI is now ABOVE the canvas, not overlayed */
+    
     #ui {
       display: flex;
       flex-wrap: wrap;
@@ -45,7 +45,7 @@
       box-sizing: border-box;
       color: #222;
       font-size: 15px;
-      background: #ffffff;                /* white bubble */
+      background: #ffffff;               
       border-radius: 999px;
       box-shadow: 0 2px 6px rgba(0,0,0,0.18);
     }
@@ -88,7 +88,7 @@
 
     canvas {
       display: block;
-      background: #ffffff;       /* grid area white too */
+      background: #ffffff;       
       border: 2px solid #555;
       border-radius: 12px;
       box-shadow: 0 0 8px rgba(0,0,0,0.1);
@@ -215,7 +215,7 @@
     }
 
     function drawHighlights() {
-      // Selected points: solid blue
+      
       ctx.fillStyle = '#007acc';
       for (const { i, j } of selected) {
         const { x, y } = gridCoords[i][j];
@@ -224,7 +224,7 @@
         ctx.fill();
       }
 
-      // Hover preview
+      
       if (hoverCell) {
         const { i, j } = hoverCell;
         const alreadySelected = selected.some(p => p.i === i && p.j === j);
@@ -238,7 +238,7 @@
         }
       }
 
-      // Brief red flash on invalid click
+      
       if (invalidFlashCell) {
         const { i, j } = invalidFlashCell;
         const { x, y } = gridCoords[i][j];
@@ -282,11 +282,11 @@
       const rootRect = rootEl.getBoundingClientRect();
       const uiRect = uiEl.getBoundingClientRect();
 
-      const padding = 16; // little breathing room
+      const padding = 16; 
       const availableWidth = rootRect.width - padding;
       const availableHeight = rootRect.height - uiRect.height - padding;
 
-      const side = Math.max(150, Math.min(availableWidth, availableHeight)); // keep it reasonable
+      const side = Math.max(150, Math.min(availableWidth, availableHeight)); 
 
       sizePx = side;
 
